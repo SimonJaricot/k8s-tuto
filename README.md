@@ -100,34 +100,12 @@ Les images des applications fil rouge sont publiées publiquement sur Docker Hub
 Chaque image est poussée avec **deux tags** à chaque release :
 
 ```
-simonjaricot/k8s-tuto-api:v1.0.0            ← tag semver (stable, référencé dans les manifests)
-simonjaricot/k8s-tuto-api:v1.0.0-a1b2c3d   ← semver + SHA court (traçabilité exacte du commit)
+simonjaricot/k8s-tuto-api:v1.0.1            ← tag semver (stable, référencé dans les manifests)
+simonjaricot/k8s-tuto-api:v1.0.1-a1b2c3d   ← semver + SHA court (traçabilité exacte du commit)
 ```
 
 > Le tag `latest` n'est **jamais** utilisé — il est non-déterministe et rend les déploiements
 > difficiles à reproduire. Les manifests référencent toujours un tag semver précis.
-
-### Publier une nouvelle version
-
-```bash
-# Créer et pousser un tag git — le workflow GitHub Actions se déclenche automatiquement
-git tag v1.1.0
-git push origin v1.1.0
-```
-
-Le workflow `.github/workflows/docker-publish.yml` :
-1. Extrait la version du tag git (`v1.1.0` → `1.1.0`) et le SHA court du commit
-2. Build les deux images avec Docker Buildx (cache GitHub Actions activé)
-3. Pousse les deux tags vers Docker Hub
-
-### Configurer les secrets GitHub
-
-Avant le premier push, ajouter dans **Settings → Secrets → Actions** du repo :
-
-| Secret | Valeur |
-|--------|--------|
-| `DOCKERHUB_USERNAME` | `simonjaricot` |
-| `DOCKERHUB_TOKEN` | Token d'accès Docker Hub (pas le mot de passe) — créer sur [hub.docker.com/settings/security](https://hub.docker.com/settings/security) |
 
 ---
 
