@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>k8s-tuto — Users</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #f5f5f5; padding: 2rem; }
+    h1 { margin-bottom: 1.5rem; color: #333; }
+    .card { background: white; border-radius: 8px; padding: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,.1); margin-bottom: 1.5rem; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: .5rem .75rem; border-bottom: 1px solid #eee; }
+    th { font-weight: 600; color: #555; }
+    form { display: flex; gap: .75rem; flex-wrap: wrap; }
+    input { flex: 1; min-width: 160px; padding: .5rem .75rem; border: 1px solid #ccc; border-radius: 4px; }
+    button { padding: .5rem 1.25rem; background: #3b82f6; color: white; border: none; border-radius: 4px; cursor: pointer; }
+    button:hover { background: #2563eb; }
+    #status { margin-top: .75rem; font-size: .875rem; color: #666; }
+    .error { color: #dc2626; }
+    .success { color: #16a34a; }
+  </style>
+</head>
+<body>
+  <h1>Kubernetes Tutorial — Users</h1>
+
+  <div class="card">
+    <h2 style="margin-bottom:1rem">Ajouter un utilisateur</h2>
+    <form id="create-form">
+      <input type="text" id="name" placeholder="Nom" required />
+      <input type="email" id="email" placeholder="Email" required />
+      <button type="submit">Créer</button>
+    </form>
+    <div id="status"></div>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-bottom:1rem">Liste des utilisateurs</h2>
+    <table>
+      <thead><tr><th>ID</th><th>Nom</th><th>Email</th></tr></thead>
+      <tbody id="users-body"><tr><td colspan="3">Chargement…</td></tr></tbody>
+    </table>
+  </div>
+
+  <script>
+    // L'URL de l'API est injectée au build ou via une variable d'environnement Nginx
+    // En dev local, pointer vers localhost:8080
+    const API_URL = window.API_URL || 'http://localhost:8080';
+
+    async function loadUsers() {
+      const tbody = document.getElementById('users-body');
+      try {
+        const res = await fetch(`${API_URL}/users`);
+        const users = await res.json();
+        if (users.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="3" style="color:#999">Aucun utilisateur</td></tr>';
+          return;
+        }
+        tbody.innerHTML = users.map(u =>
+          `<tr><td>${u.id}</td><td>${escapeHtml(u.name)}</td><td>${escapeHtml(u.email)}</td></tr>`
+        ).join('');
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="3" class="error">Erreur : ${err.message}</td></tr>`;
+      }
+    }
+
+    document.getElementById('create-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const status = document.getElementById('status');
+      const name = document.getElementById('name').value.trim();
+      const email = document.getElementById('email').value.trim();
+
+      try {
+        const res = await fetch(`${API_URL}/users`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, email }),
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text || res.statusText);
+        }
+        status.className = 'success';
+        status.textContent = `Utilisateur "${name}" créé avec succès`;
+        document.getElementById('name').value = '';
+        document.getElementById('email').value = '';
+        loadUsers();
+      } catch (err) {
+        status.className = 'error';
+        status.textContent = `Erreur : ${err.message}`;
+      }
+    });
+
+    function escapeHtml(str) {
+      return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    loadUsers();
+  </script>
+</body>
+</html>

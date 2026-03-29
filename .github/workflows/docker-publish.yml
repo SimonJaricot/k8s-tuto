@@ -1,0 +1,110 @@
+name: Build & Push Docker images
+
+on:
+  push:
+    tags:
+      - "v*.*.*"         # Déclenché sur les tags semver : v1.0.0, v1.2.3, etc.
+  workflow_dispatch:      # Déclenchement manuel possible depuis GitHub UI
+
+env:
+  REGISTRY: docker.io
+  API_IMAGE: simonjaricot/k8s-tuto-api
+  FRONTEND_IMAGE: simonjaricot/k8s-tuto-frontend
+
+jobs:
+  build-api:
+    name: Build API (Go)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract version metadata
+        id: meta
+        # Ex. pour le tag v1.2.3 :
+        #   steps.meta.outputs.version    = "1.2.3"
+        #   steps.meta.outputs.sha_short  = "a1b2c3d"
+        #   steps.meta.outputs.full_tag   = "v1.2.3-a1b2c3d"
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"          # "v1.2.3" → "1.2.3"
+          SHA_SHORT="${GITHUB_SHA::7}"
+          echo "version=${VERSION}"          >> "$GITHUB_OUTPUT"
+          echo "sha_short=${SHA_SHORT}"      >> "$GITHUB_OUTPUT"
+          echo "full_tag=v${VERSION}-${SHA_SHORT}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}    # Token PAT, pas le mot de passe
+
+      - name: Build and push API image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./apps/api
+          file: ./apps/api/Dockerfile
+          push: true
+          # On pousse deux tags :
+          #   simonjaricot/k8s-tuto-api:v1.2.3
+          #   simonjaricot/k8s-tuto-api:v1.2.3-a1b2c3d
+          tags: |
+            ${{ env.API_IMAGE }}:v${{ steps.meta.outputs.version }}
+            ${{ env.API_IMAGE }}:${{ steps.meta.outputs.full_tag }}
+          # Cache inter-runs pour accélérer les builds
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          # Metadata OCI (inspecter avec docker inspect)
+          labels: |
+            org.opencontainers.image.title=k8s-tuto-api
+            org.opencontainers.image.version=${{ steps.meta.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+
+  build-frontend:
+    name: Build Frontend (Nginx)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract version metadata
+        id: meta
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          SHA_SHORT="${GITHUB_SHA::7}"
+          echo "version=${VERSION}"          >> "$GITHUB_OUTPUT"
+          echo "sha_short=${SHA_SHORT}"      >> "$GITHUB_OUTPUT"
+          echo "full_tag=v${VERSION}-${SHA_SHORT}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push Frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./apps/frontend
+          file: ./apps/frontend/Dockerfile
+          push: true
+          tags: |
+            ${{ env.FRONTEND_IMAGE }}:v${{ steps.meta.outputs.version }}
+            ${{ env.FRONTEND_IMAGE }}:${{ steps.meta.outputs.full_tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          labels: |
+            org.opencontainers.image.title=k8s-tuto-frontend
+            org.opencontainers.image.version=${{ steps.meta.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}

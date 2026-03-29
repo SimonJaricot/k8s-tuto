@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-config
+  namespace: database
+  labels:
+    app: postgres
+    app.kubernetes.io/part-of: k8s-tuto
+data:
+  POSTGRES_DB: "usersdb"
+  DB_PORT: "5432"

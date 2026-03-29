@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: database
+  labels:
+    app: postgres
+    app.kubernetes.io/part-of: k8s-tuto
+spec:
+  clusterIP: None   # Headless — un enregistrement DNS par Pod du StatefulSet
+  selector:
+    app: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+      protocol: TCP

@@ -1,0 +1,29 @@
+# Role permettant à l'API de lire sa propre configuration
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: api-config-reader
+  namespace: api
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch"]
+  # Lecture des secrets uniquement pour ceux nommés "api-secret"
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["api-secret"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: api-config-reader-binding
+  namespace: api
+subjects:
+  - kind: ServiceAccount
+    name: api
+    namespace: api
+roleRef:
+  kind: Role
+  name: api-config-reader
+  apiGroup: rbac.authorization.k8s.io

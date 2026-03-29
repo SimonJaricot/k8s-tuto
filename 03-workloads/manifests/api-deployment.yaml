@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: api
+  labels:
+    app: api
+    app.kubernetes.io/part-of: k8s-tuto
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: api
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: api
+        tier: backend
+    spec:
+      containers:
+        - name: api
+          image: simonjaricot/k8s-tuto-api:v1.0.0  # remplacé au module 09
+          ports:
+            - containerPort: 8080
+          env:
+            - name: DB_HOST
+              value: "postgres.database.svc.cluster.local"  # DNS interne — module 05
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_NAME
+              value: "usersdb"
+            - name: DB_USER
+              value: "admin"
+            - name: DB_PASSWORD
+              value: "changeme"  # Remplacé par un Secret au module 04
