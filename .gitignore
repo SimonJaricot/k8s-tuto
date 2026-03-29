@@ -1,0 +1,10 @@
+# Binaire Go compilé localement
+apps/api/api
+
+# Fichiers Go générés
+apps/api/*.test
+
+# Variables d'environnement locales
+.env
+.env.*
+!.env.example
