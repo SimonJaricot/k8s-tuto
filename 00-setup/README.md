@@ -53,6 +53,17 @@ brew install cilium-cli
 cilium version
 ```
 
+### Hubble CLI
+
+```bash
+# macOS
+brew install hubble
+# Vérifie
+hubble version
+```
+
+> La Hubble CLI est distincte de la Cilium CLI. Elle permet d'interroger le relay Hubble pour observer les flux réseau en temps réel depuis le terminal.
+
 ---
 
 ## Créer le cluster
@@ -181,9 +192,22 @@ Connected Nodes: 3/3
 
 ## Aller plus loin
 
-- Hubble UI (interface graphique) : `cilium hubble enable --ui` puis `cilium hubble ui`
 - Explorer les composants système : `kubectl get pods -n kube-system`
 - Inspecter la configuration Cilium : `kubectl get configmap -n kube-system cilium-config -o yaml`
+
+### Hubble UI (interface graphique)
+
+Hubble UI offre une carte des flux réseau inter-services en temps réel dans le navigateur.
+
+```bash
+# Activer l'UI (déploie un pod hubble-ui dans kube-system)
+cilium hubble enable --ui
+
+# Ouvrir l'UI dans le navigateur (port-forward automatique)
+cilium hubble ui
+```
+
+> L'UI est optionnelle pour ce parcours — Hubble relay + CLI suffisent. Elle est utile pour visualiser les NetworkPolicies du module 07.
 
 ---
 
