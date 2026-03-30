@@ -51,9 +51,15 @@ hubble observe --from-namespace api --to-namespace database --follow
 
 Depuis un autre terminal, générer du trafic :
 ```bash
-# Test de connexion frontend → database (devrait être bloqué)
+# Test de connexion frontend → database (devrait être bloqué une fois les policies en place)
 kubectl run test --image=busybox --rm -it --restart=Never -n frontend \
   -- sh -c "nc -zv postgres.database.svc.cluster.local 5432"
+```
+
+Sans aucune NetworkPolicy, `nc` réussit :
+```
+postgres.database.svc.cluster.local (10.96.x.x:5432) open
+pod "test" deleted
 ```
 
 Hubble affiche :
@@ -96,16 +102,25 @@ hubble observe --namespace database --follow
 
 Puis retester la connexion depuis le namespace `api` avec un Pod de debug :
 ```bash
-# L'image API est FROM scratch — aucun shell disponible.
-# On lance un Pod busybox dans le même namespace pour simuler le trafic.
+# nc -zv teste uniquement l'établissement de la connexion TCP (pas de protocole HTTP)
+# C'est le bon outil pour tester la connectivité vers PostgreSQL (port 5432)
 kubectl run debug --image=busybox -n api --rm -it --restart=Never -- \
-  wget --timeout=3 -qO- http://postgres.database.svc.cluster.local:5432
+  nc -zv postgres.database.svc.cluster.local 5432
+```
+
+Avec le deny-all actif, la connexion TCP est bloquée :
+```
+nc: postgres.database.svc.cluster.local (10.96.x.x:5432): Connection timed out
+pod "debug" deleted
+pod api/debug terminated (Error)
 ```
 
 Hubble affiche maintenant :
 ```
-VERDICT: DROPPED
+api/debug:xxxxx -> database/postgres-0:5432   to-overlay   DROPPED (TCP Flags: SYN)
 ```
+
+> **Pourquoi `nc` et pas `wget` ?** PostgreSQL parle son propre protocole binaire, pas HTTP. `wget` établit bien la connexion TCP mais échoue à parser la réponse — même sans NetworkPolicy. `nc -zv` teste uniquement la couche TCP et retourne clairement `succeeded` ou `timed out`.
 
 ---
 
