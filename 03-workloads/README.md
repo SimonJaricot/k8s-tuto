@@ -78,6 +78,36 @@ NAME   READY   UP-TO-DATE   AVAILABLE   AGE
 api    2/2     2            2           10s
 ```
 
+### CrashLoopBackOff — comportement normal à ce stade
+
+Une fois l'API déployée, ses Pods seront en `CrashLoopBackOff` :
+
+```bash
+kubectl get pods -n api
+```
+
+```
+NAME                   READY   STATUS             RESTARTS   AGE
+api-6d69cf69cc-wkpxt   0/1     CrashLoopBackOff   5          4m
+```
+
+```bash
+kubectl logs <nom-du-pod> -n api --previous
+```
+
+```
+2026/03/30 08:28:06 Failed to create table: dial tcp: lookup postgres.database.svc.cluster.local on 10.96.0.10:53: no such host
+```
+
+C'est **attendu et normal** à ce stade du parcours. L'API tente de joindre PostgreSQL via son nom DNS `postgres.database.svc.cluster.local` au démarrage, mais ce nom n'existe pas encore car :
+
+- Le **Service** `postgres` dans le namespace `database` n'a pas encore été créé (module 05)
+- Sans Service, le DNS interne Kubernetes n'a pas d'entrée à résoudre
+
+Ce `CrashLoopBackOff` disparaîtra naturellement au module 05, une fois le Service PostgreSQL créé. Le but ici est uniquement de comprendre les Deployments et StatefulSets.
+
+> **Concept illustré** : Kubernetes redémarre automatiquement un conteneur qui crashe (`restartPolicy: Always` par défaut), avec un délai exponentiel entre chaque tentative. C'est le `BackOff` de `CrashLoopBackOff`.
+
 ### Déboguer un ImagePullBackOff
 
 Si les Pods restent en `Pending` ou `0/2 Ready`, commence par inspecter l'état des Pods :
