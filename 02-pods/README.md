@@ -108,6 +108,8 @@ kubectl logs --tail=50 postgres -n database
 
 ### Exécuter une commande dans le conteneur
 
+> **Note** : la base `usersdb` est créée automatiquement au démarrage du conteneur grâce à la variable `POSTGRES_DB=usersdb` définie dans le manifest. Sans cette variable, seule la base `postgres` existerait par défaut.
+
 ```bash
 # Ouvrir un shell interactif
 kubectl exec -it postgres -n database -- bash
