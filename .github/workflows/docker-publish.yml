@@ -48,6 +48,7 @@ jobs:
         with:
           context: ./apps/api
           file: ./apps/api/Dockerfile
+          platforms: linux/amd64,linux/arm64   # Multi-arch : amd64 (CI/prod) + arm64 (Apple Silicon)
           push: true
           # On pousse deux tags :
           #   simonjaricot/k8s-tuto-api:v1.2.3
@@ -97,6 +98,7 @@ jobs:
         with:
           context: ./apps/frontend
           file: ./apps/frontend/Dockerfile
+          platforms: linux/amd64,linux/arm64   # Multi-arch : amd64 (CI/prod) + arm64 (Apple Silicon)
           push: true
           tags: |
             ${{ env.FRONTEND_IMAGE }}:v${{ steps.meta.outputs.version }}
