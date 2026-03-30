@@ -43,9 +43,8 @@
   </div>
 
   <script>
-    // L'URL de l'API est injectée au build ou via une variable d'environnement Nginx
-    // En dev local, pointer vers localhost:8080
-    const API_URL = window.API_URL || 'http://localhost:8080';
+    // L'URL de l'API est injectée au démarrage du conteneur via la variable d'environnement API_URL
+    const API_URL = '$API_URL';
 
     async function loadUsers() {
       const tbody = document.getElementById('users-body');
