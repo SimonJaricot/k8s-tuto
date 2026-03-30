@@ -159,12 +159,28 @@ kubectl apply -f 05-networking/manifests/
 Vérifie que l'API peut joindre PostgreSQL :
 
 ```bash
-# Depuis un Pod de l'API, tester la connexion
-kubectl exec -it deploy/api -n api -- wget -qO- http://localhost:8080/healthz
+# L'image API est FROM scratch — aucun shell disponible.
+# On utilise kubectl port-forward pour tester le healthcheck depuis la machine locale.
+kubectl port-forward deploy/api 8080:8080 -n api &
+curl -s http://localhost:8080/healthz
 ```
 
 ```json
-{"status": "ok", "db": "connected"}
+{"status":"ok"}
+```
+
+```bash
+# Tester le readyz qui vérifie la connexion à PostgreSQL
+curl -s http://localhost:8080/readyz
+```
+
+```json
+{"db":"connected","status":"ok"}
+```
+
+```bash
+# Arrêter le port-forward
+kill %1
 ```
 
 ### Vérifier les Services

@@ -94,10 +94,12 @@ Tester depuis Hubble :
 hubble observe --namespace database --follow
 ```
 
-Puis retester la connexion depuis l'API :
+Puis retester la connexion depuis le namespace `api` avec un Pod de debug :
 ```bash
-kubectl exec -it deploy/api -n api -- wget --timeout=3 -qO- \
-  http://postgres.database.svc.cluster.local:5432
+# L'image API est FROM scratch — aucun shell disponible.
+# On lance un Pod busybox dans le même namespace pour simuler le trafic.
+kubectl run debug --image=busybox -n api --rm -it --restart=Never -- \
+  wget --timeout=3 -qO- http://postgres.database.svc.cluster.local:5432
 ```
 
 Hubble affiche maintenant :
