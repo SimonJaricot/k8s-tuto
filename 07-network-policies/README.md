@@ -79,7 +79,7 @@ La bonne pratique est d'appliquer un **deny-all** par défaut sur chaque namespa
 ### Étape 1 — Deny-all sur le namespace database
 
 ```yaml
-# manifests/database-deny-all.yaml
+# manifests/01-database-deny-all.yaml
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
@@ -87,12 +87,27 @@ metadata:
   namespace: database
 spec:
   endpointSelector: {}   # Sélectionne tous les endpoints du namespace
-  ingress: []            # Aucun trafic entrant autorisé
-  egress: []             # Aucun trafic sortant autorisé
+  ingressDeny:
+    - fromEntities:
+        - "all"          # Bloque tout le trafic entrant
+  egressDeny:
+    - toEntities:
+        - "all"          # Bloque tout le trafic sortant
 ```
 
+> **Pourquoi `ingressDeny`/`egressDeny` et pas `ingress: []`/`egress: []` ?**
+> Cilium exige qu'une policy ait au moins une règle non-vide — une liste vide est invalide (`VALID: False`) et ignorée silencieusement. Les champs `ingressDeny`/`egressDeny` expriment explicitement le blocage.
+
 ```bash
-kubectl apply -f 07-network-policies/manifests/database-deny-all.yaml
+kubectl apply -f 07-network-policies/manifests/01-database-deny-all.yaml
+
+# Vérifier que la policy est valide
+kubectl get ciliumnetworkpolicy deny-all -n database
+```
+
+```
+NAME       AGE   VALID
+deny-all   10s   True
 ```
 
 Tester depuis Hubble :
@@ -117,7 +132,8 @@ pod api/debug terminated (Error)
 
 Hubble affiche maintenant :
 ```
-api/debug:xxxxx -> database/postgres-0:5432   to-overlay   DROPPED (TCP Flags: SYN)
+api/debug:xxxxx <> database/postgres-0:5432   policy-verdict:all INGRESS DENIED   DROPPED (TCP Flags: SYN)
+api/debug:xxxxx <> database/postgres-0:5432   Policy denied by denylist           DROPPED (TCP Flags: SYN)
 ```
 
 > **Pourquoi `nc` et pas `wget` ?** PostgreSQL parle son propre protocole binaire, pas HTTP. `wget` établit bien la connexion TCP mais échoue à parser la réponse — même sans NetworkPolicy. `nc -zv` teste uniquement la couche TCP et retourne clairement `succeeded` ou `timed out`.
