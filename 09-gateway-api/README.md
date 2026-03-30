@@ -45,15 +45,31 @@ La Gateway API nécessite l'installation des CRDs (Custom Resource Definitions) 
 kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.1/experimental-install.yaml
 ```
 
-### Activer dans Cilium
+> **Important — ordre d'installation** : Cilium doit détecter les CRDs Gateway API au démarrage pour créer automatiquement la `GatewayClass cilium`. Si Cilium a été installé **avant** les CRDs (cas du parcours normal où `init.sh` précède ce module), il faut relancer la détection avec un `helm upgrade --reuse-values` :
+>
+> ```bash
+> helm upgrade cilium cilium/cilium \
+>   --version 1.19.2 \
+>   --namespace kube-system \
+>   --reuse-values
+> ```
+>
+> Cette commande ne change aucune option — elle force juste Cilium à redémarrer et à créer la GatewayClass maintenant que les CRDs sont présents.
+>
+> Si tu utilises `init.sh` fourni dans ce repo, cette étape est inutile : les CRDs sont déjà installés avant Cilium.
+
+### Options Cilium requises (déjà dans `init.sh`)
 
 ```bash
-helm upgrade cilium cilium/cilium \
-  --version 1.19.2 \
-  --namespace kube-system \
-  --reuse-values \
-  --set gatewayAPI.enabled=true
+helm install cilium cilium/cilium \
+  --set gatewayAPI.enabled=true \
+  --set kubeProxyReplacement=true \
+  --set l2announcements.enabled=true \
+  # ...
 ```
+
+> `kubeProxyReplacement=true` est **obligatoire** pour la Gateway API. Sans ce flag, la GatewayClass reste en `Accepted: Unknown`.  
+> `l2announcements.enabled=true` est requis pour que Cilium annonce l'IP LoadBalancer sur le réseau L2.
 
 Vérifier :
 
@@ -94,13 +110,25 @@ On expose deux hostnames distincts sur la même Gateway :
 Le frontend appelle l'API via `http://api.local` — une URL accessible depuis le navigateur, pas depuis l'intérieur du cluster.
 
 ```
-Navigateur
+Navigateur (Mac)
     │
-    ├── http://app.local  →  Gateway  →  frontend:80  (ns/frontend)
-    └── http://api.local  →  Gateway  →  api:8080     (ns/api)
-                                               │
-                                               ▼
-                                       postgres:5432 (ns/database)
+    │  http://app.local:8080  (résolu vers 127.0.0.1 via /etc/hosts)
+    │  http://api.local:8080  (résolu vers 127.0.0.1 via /etc/hosts)
+    │
+    ▼
+localhost:8080  ──[extraPortMappings]──▶  NodePort 30080 (kind-control-plane)
+                                                │
+                                                ▼ (Cilium eBPF)
+                                         Gateway main-gateway (172.18.0.200:80)
+                                                │
+                                    ┌───────────┴───────────┐
+                                    ▼                       ▼
+                             frontend:80             api:8080
+                           (ns/frontend)            (ns/api)
+                                                        │
+                                                        ▼
+                                                postgres:5432
+                                               (ns/database)
 ```
 
 ---
@@ -129,7 +157,7 @@ spec:
 ```
 
 ```bash
-kubectl apply -f 09-gateway-api/manifests/gateway.yaml
+kubectl apply -f 09-gateway-api/manifests/
 
 # Attendre que la Gateway obtienne une IP
 kubectl get gateway main-gateway -n frontend -w
@@ -137,10 +165,10 @@ kubectl get gateway main-gateway -n frontend -w
 
 ```
 NAME           CLASS    ADDRESS        PROGRAMMED   AGE
-main-gateway   cilium   172.18.0.240   True         15s
+main-gateway   cilium   172.18.0.200   True         15s
 ```
 
-> Avec kind, l'adresse assignée est une IP Docker interne. On utilisera `kubectl port-forward` pour y accéder depuis la machine hôte.
+> Cilium crée automatiquement un Service `cilium-gateway-main-gateway` de type `LoadBalancer` dans `ns/frontend`. L'adresse IP est allouée par le `CiliumLoadBalancerIPPool` (manifests/lb-ip-pool.yaml).
 
 ---
 
@@ -216,13 +244,19 @@ kubectl label namespace frontend gateway-accessible=true
 Jusqu'ici, le frontend utilisait `http://api.api.svc.cluster.local:8080` comme `API_URL` — une URL interne au cluster, non résolvable par un navigateur. Maintenant que la Gateway expose l'API sous `http://api.local`, on met à jour le Deployment :
 
 ```bash
-kubectl apply -f 09-gateway-api/manifests/frontend-api-url-patch.yaml
+kubectl patch deployment frontend -n frontend --type=strategic \
+  --patch-file 09-gateway-api/frontend-api-url-patch.yaml
 ```
 
-Ce patch strategic merge met à jour uniquement la variable `API_URL` du conteneur `frontend` :
+Le fichier `frontend-api-url-patch.yaml` est un **strategic merge patch** — il met à jour uniquement la variable `API_URL` sans toucher au reste du Deployment :
 
 ```yaml
-# manifests/frontend-api-url-patch.yaml
+# frontend-api-url-patch.yaml  (hors du dossier manifests/)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: frontend
 spec:
   template:
     spec:
@@ -233,13 +267,15 @@ spec:
               value: "http://api.local"
 ```
 
+> Ce fichier est placé à la racine de `09-gateway-api/` et non dans `manifests/` pour ne pas être inclus accidentellement dans un `kubectl apply -f manifests/` (un Deployment incomplet échoue à la validation).
+
 Le Pod frontend redémarre automatiquement avec la nouvelle valeur.
 
 ---
 
 ## NetworkPolicies — Autoriser le trafic depuis la Gateway
 
-Cilium crée un pod Envoy proxy dans le namespace de la Gateway (`frontend`) pour gérer le trafic. Ce pod doit pouvoir atteindre les Services `frontend` et `api`.
+Cilium Gateway utilise un proxy Envoy interne avec une identité réservée (`reserved:ingress`). On utilise `fromEntities: ["ingress"]` pour autoriser ce trafic, car l'identité Envoy n'est pas un pod ordinaire.
 
 ```bash
 kubectl apply -f 09-gateway-api/manifests/gateway-network-policies.yaml
@@ -253,13 +289,38 @@ kubectl get ciliumnetworkpolicy -A
 
 Les policies `allow-from-gateway` dans `ns/frontend` et `ns/api` apparaissent avec `VALID: True`.
 
+> **Piège courant** : utiliser `fromEndpoints` avec `io.cilium/gateway: main-gateway` ne fonctionne pas — ce label ne correspond pas à l'identité réelle du proxy Envoy. Le trafic serait alors bloqué (503 depuis la Gateway).
+
 ---
 
 ## Tester depuis la machine hôte
 
-### Étape 1 — Configurer /etc/hosts
+### Prérequis : `kind-config.yaml` avec extraPortMappings
 
-Ajouter les hostnames locaux pour résoudre `app.local` et `api.local` vers localhost :
+Le fichier `kind-config.yaml` à la racine du repo expose le port NodePort `30080` du nœud control-plane sur le port `8080` de la machine hôte. Ce mapping est défini une fois à la création du cluster (c'est pourquoi il est dans `kind-config.yaml` et non dans les manifests Kubernetes).
+
+### Étape 1 — Fixer le NodePort de la Gateway à 30080
+
+Cilium crée le Service `cilium-gateway-main-gateway` avec un NodePort aléatoire. Il faut le fixer à `30080` pour correspondre au mapping kind :
+
+```bash
+kubectl patch svc cilium-gateway-main-gateway -n frontend \
+  --type='json' \
+  -p='[{"op":"replace","path":"/spec/ports/0/nodePort","value":30080}]'
+```
+
+Vérifier :
+
+```bash
+kubectl get svc -n frontend cilium-gateway-main-gateway
+```
+
+```
+NAME                          TYPE           CLUSTER-IP    EXTERNAL-IP    PORT(S)        AGE
+cilium-gateway-main-gateway   LoadBalancer   10.96.45.95   172.18.0.200   80:30080/TCP   5m
+```
+
+### Étape 2 — Configurer /etc/hosts
 
 ```bash
 echo "127.0.0.1 app.local api.local" | sudo tee -a /etc/hosts
@@ -267,18 +328,10 @@ echo "127.0.0.1 app.local api.local" | sudo tee -a /etc/hosts
 
 > Pour nettoyer après le tutoriel : supprimer la ligne ajoutée dans `/etc/hosts`.
 
-### Étape 2 — Port-forward sur la Gateway
-
-```bash
-kubectl port-forward -n frontend svc/cilium-gateway-main-gateway 80:80 &
-```
-
-> Le nom du Service créé par Cilium pour la Gateway suit le format `cilium-gateway-<gateway-name>`.
-
 ### Étape 3 — Tester l'API
 
 ```bash
-curl http://api.local/users
+curl http://api.local:8080/users
 ```
 
 ```json
@@ -286,7 +339,7 @@ curl http://api.local/users
 ```
 
 ```bash
-curl http://api.local/healthz
+curl http://api.local:8080/healthz
 ```
 
 ```json
@@ -295,9 +348,10 @@ curl http://api.local/healthz
 
 ### Étape 4 — Tester le frontend dans le navigateur
 
-Ouvrir `http://app.local` dans le navigateur. La liste des utilisateurs s'affiche, le formulaire de création fonctionne.
+Ouvrir `http://app.local:8080` dans le navigateur. La liste des utilisateurs s'affiche, le formulaire de création fonctionne.
 
-> **Pourquoi ça marche maintenant ?** Le browser envoie `GET /users` vers `http://api.local` — qui est résolu par `/etc/hosts` vers `127.0.0.1`, puis redirigé par `port-forward` vers le Service Gateway dans le cluster, puis routé par la HTTPRoute `api-route` vers le Service `api`.
+> **Pourquoi ça marche maintenant ?**  
+> Le browser envoie `GET /users` vers `http://api.local:8080` — résolu par `/etc/hosts` vers `127.0.0.1:8080`, redirigé par `extraPortMappings` vers NodePort `30080` sur le nœud kind, puis routé par Cilium eBPF vers la Gateway Envoy, puis par la HTTPRoute `api-route` vers le Service `api`.
 
 ---
 
@@ -334,22 +388,38 @@ rules:
 ## Fil rouge — Appliquer tout le module 09
 
 ```bash
-# 1. Appliquer les manifests
+# 1. Appliquer les manifests (Gateway, HTTPRoutes, NetworkPolicies, LB IP Pool)
 kubectl apply -f 09-gateway-api/manifests/
 
-# 2. Labelliser les namespaces
+# 2. Labelliser les namespaces pour autoriser l'attachement des HTTPRoutes
 kubectl label namespace api gateway-accessible=true
 kubectl label namespace frontend gateway-accessible=true
 
-# 3. Configurer /etc/hosts
+# 3. Attendre que la Gateway soit programmée avec une IP
+kubectl get gateway main-gateway -n frontend -w
+# → PROGRAMMED: True, ADDRESS: 172.18.0.200
+
+# 4. Fixer le NodePort à 30080 (pour correspondre à extraPortMappings dans kind-config.yaml)
+kubectl patch svc cilium-gateway-main-gateway -n frontend \
+  --type='json' \
+  -p='[{"op":"replace","path":"/spec/ports/0/nodePort","value":30080}]'
+
+# 5. Patcher l'API_URL du frontend
+kubectl patch deployment frontend -n frontend --type=strategic \
+  --patch-file 09-gateway-api/frontend-api-url-patch.yaml
+
+# 6. Configurer /etc/hosts
 echo "127.0.0.1 app.local api.local" | sudo tee -a /etc/hosts
 
-# 4. Port-forward sur la Gateway
-kubectl port-forward -n frontend svc/cilium-gateway-main-gateway 80:80 &
+# 7. Tester
+curl http://api.local:8080/healthz
+# → {"status":"ok"}
 
-# 5. Tester
-curl http://api.local/users
-# → ouvrir http://app.local dans le navigateur
+curl http://api.local:8080/users
+# → [{"id":1,...}]
+
+# 8. Ouvrir dans le navigateur
+open http://app.local:8080
 ```
 
 ---
@@ -363,7 +433,11 @@ curl http://api.local/users
 | **HTTPRoute** | Règles de routage HTTP attachées à une Gateway |
 | **parentRefs** | Référence à la Gateway à laquelle la route s'attache |
 | **allowedRoutes** | Contrôle quels namespaces peuvent attacher des routes |
+| **CiliumLoadBalancerIPPool** | Alloue des IPs pour les Services LoadBalancer |
+| **CiliumL2AnnouncementPolicy** | Annonce les IPs LoadBalancer sur le réseau L2 (ARP) |
+| **reserved:ingress** | Identité Cilium du proxy Envoy de la Gateway |
 | **Strategic Merge Patch** | Met à jour partiellement une ressource existante |
+| **extraPortMappings** | Expose un NodePort kind sur la machine hôte |
 
 ---
 

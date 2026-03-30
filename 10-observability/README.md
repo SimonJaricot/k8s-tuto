@@ -142,6 +142,17 @@ kubectl top pods -n api
 kubectl top pods -n database
 ```
 
+> **metrics-server non installé par défaut dans kind** : sans lui, `kubectl top` échoue avec `error: Metrics API not available` et le HPA affiche `cpu: <unknown>`. Pour l'installer :
+>
+> ```bash
+> kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+>
+> # Patch obligatoire pour kind (certificats TLS auto-signés)
+> kubectl patch deployment metrics-server -n kube-system \
+>   --type=json \
+>   -p='[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
+> ```
+
 ---
 
 ## Horizontal Pod Autoscaler (HPA)
@@ -187,9 +198,11 @@ kubectl get hpa -n api -w
 ```
 
 ```
-NAME      REFERENCE         TARGETS          MINPODS   MAXPODS   REPLICAS
-api-hpa   Deployment/api    12%/70%, ...     2         10        2
+NAME      REFERENCE         TARGETS               MINPODS   MAXPODS   REPLICAS
+api-hpa   Deployment/api    <unknown>/70%, ...    2         10        2
 ```
+
+> Sans metrics-server, les colonnes `TARGETS` affichent `<unknown>`. Installe metrics-server (voir ci-dessus) pour voir les valeurs réelles (`12%/70%`).
 
 ### Générer de la charge pour tester le HPA
 

@@ -157,6 +157,17 @@ spec:
 
 ## Fil rouge — Appliquer la configuration
 
+> **Attention — migration du mot de passe PostgreSQL** : si tu as suivi le module 02 (Pod postgres avec `POSTGRES_PASSWORD=changeme` en dur), PostgreSQL a déjà initialisé ses données avec cet ancien mot de passe. PostgreSQL ne relit **pas** `POSTGRES_PASSWORD` au redémarrage si les données existent déjà — changer le Secret ne suffit pas.
+>
+> Il faut supprimer le PVC pour forcer une réinitialisation complète avant d'appliquer le StatefulSet de ce module :
+>
+> ```bash
+> kubectl delete statefulset postgres -n database --ignore-not-found
+> kubectl delete pvc --all -n database
+> ```
+>
+> Ensuite, continue avec les commandes ci-dessous.
+
 Supprime les workloads du module 03 et réapplique avec la configuration externalisée :
 
 ```bash

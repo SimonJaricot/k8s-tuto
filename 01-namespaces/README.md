@@ -34,11 +34,13 @@ kubectl get namespaces
 ```
 
 ```
-NAME              STATUS   AGE
-default           Active   5m
-kube-node-lease   Active   5m
-kube-public       Active   5m
-kube-system       Active   5m
+NAME                   STATUS   AGE
+cilium-secrets         Active   5m
+default                Active   5m
+kube-node-lease        Active   5m
+kube-public            Active   5m
+kube-system            Active   5m
+local-path-storage     Active   5m
 ```
 
 | Namespace | Rôle |
@@ -47,6 +49,8 @@ kube-system       Active   5m
 | `kube-system` | Composants internes (scheduler, etcd, Cilium…) |
 | `kube-public` | Ressources lisibles par tous, même sans authentification |
 | `kube-node-lease` | Objets `Lease` pour le heartbeat des nœuds |
+| `cilium-secrets` | Certificats TLS internes gérés par Cilium (créé par `init.sh`) |
+| `local-path-storage` | Provisioner de stockage local créé par kind |
 
 ---
 

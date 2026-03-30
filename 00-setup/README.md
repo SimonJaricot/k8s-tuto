@@ -116,9 +116,9 @@ Sortie attendue :
 
 ```
 NAME                 STATUS   ROLES           AGE   VERSION
-kind-control-plane   Ready    control-plane   2m    v1.32.x
-kind-worker          Ready    <none>          2m    v1.32.x
-kind-worker2         Ready    <none>          2m    v1.32.x
+kind-control-plane   Ready    control-plane   2m    v1.35.x
+kind-worker          Ready    <none>          2m    v1.35.x
+kind-worker2         Ready    <none>          2m    v1.35.x
 ```
 
 > Les nœuds passent en `Ready` uniquement une fois que Cilium a installé les interfaces réseau sur chaque nœud.
@@ -135,7 +135,7 @@ Sortie attendue (résumé) :
     /¯¯\
  /¯¯\__/¯¯\    Cilium:             OK
  \__/¯¯\__/    Operator:           OK
- /¯¯\__/¯¯\    Envoy DaemonSet:    disabled
+ /¯¯\__/¯¯\    Envoy DaemonSet:    OK
  \__/¯¯\__/    Hubble Relay:       OK
     \__/
 ```
