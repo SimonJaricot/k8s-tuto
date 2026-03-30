@@ -144,6 +144,12 @@ Address 1: 10.96.0.50
 
 ## Fil rouge — Connecter l'API à PostgreSQL
 
+> **Prérequis** : les modules 03 et 04 doivent avoir été appliqués dans l'ordre avant ce module.
+> - Module 03 : StatefulSet PostgreSQL + Deployment API
+> - Module 04 : ConfigMap et Secret (le mot de passe PostgreSQL vient du Secret `postgres-secret`)
+>
+> Si tu appliques le module 05 sans le module 04, l'API aura `DB_PASSWORD: changeme` en dur (module 03) mais PostgreSQL attendra le mot de passe du Secret — entraînant une erreur `password authentication failed`.
+
 Applique les Services :
 
 ```bash

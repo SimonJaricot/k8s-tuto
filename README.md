@@ -100,8 +100,8 @@ Les images des applications fil rouge sont publiées publiquement sur Docker Hub
 Chaque image est poussée avec **deux tags** à chaque release :
 
 ```
-simonjaricot/k8s-tuto-api:v1.0.2            ← tag semver (stable, référencé dans les manifests)
-simonjaricot/k8s-tuto-api:v1.0.2-a1b2c3d   ← semver + SHA court (traçabilité exacte du commit)
+simonjaricot/k8s-tuto-api:v1.0.3            ← tag semver (stable, référencé dans les manifests)
+simonjaricot/k8s-tuto-api:v1.0.3-a1b2c3d   ← semver + SHA court (traçabilité exacte du commit)
 ```
 
 > Le tag `latest` n'est **jamais** utilisé — il est non-déterministe et rend les déploiements
