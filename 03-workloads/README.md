@@ -78,6 +78,44 @@ NAME   READY   UP-TO-DATE   AVAILABLE   AGE
 api    2/2     2            2           10s
 ```
 
+### Déboguer un ImagePullBackOff
+
+Si les Pods restent en `Pending` ou `0/2 Ready`, commence par inspecter l'état des Pods :
+
+```bash
+kubectl get pods -n api
+```
+
+```
+NAME                   READY   STATUS             RESTARTS   AGE
+api-57dc96666-9t8vb    0/1     ImagePullBackOff   0          30s
+```
+
+Inspecte le Pod en erreur pour lire le message exact :
+
+```bash
+kubectl describe pod <nom-du-pod> -n api
+```
+
+Les causes les plus fréquentes dans la section `Events` :
+
+| Message dans Events | Cause | Solution |
+|---------------------|-------|----------|
+| `repository does not exist` | Image ou tag inexistant sur le registry | Vérifier le nom et le tag dans le manifest |
+| `no match for platform in manifest` | Image non disponible pour l'architecture du nœud (ex. arm64 sur Apple Silicon) | Rebuilder l'image en multi-arch (`linux/amd64,linux/arm64`) |
+| `unauthorized` | Registry privé sans credentials | Ajouter un `imagePullSecret` |
+| `ErrImagePull` / `ImagePullBackOff` | Kubernetes abandonne après plusieurs échecs | Corriger la cause puis re-`apply` le manifest |
+
+Pour corriger le tag dans le manifest et réappliquer :
+
+```bash
+# Éditer le manifest (changer le tag image)
+# Puis réappliquer — Kubernetes détecte le changement et redémarre les Pods
+kubectl apply -f 03-workloads/manifests/api-deployment.yaml
+```
+
+> **Note** : `kubectl rollout restart` redémarre les Pods avec la **même image** — il ne résout pas un `ImagePullBackOff`. La seule solution est de corriger l'image référencée.
+
 ### Opérations de base sur un Deployment
 
 ```bash
