@@ -2,6 +2,13 @@ kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
   - role: control-plane
+    # Expose le port NodePort 30080 sur le port 8080 de la machine hôte
+    # Utilisé par le module 09 (Gateway API) pour accéder à la Gateway depuis le navigateur
+    # Le Service cilium-gateway-main-gateway utilise le NodePort 30080
+    extraPortMappings:
+      - containerPort: 30080
+        hostPort: 8080
+        protocol: TCP
   - role: worker
   - role: worker
 networking:

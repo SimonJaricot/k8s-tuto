@@ -1,0 +1,23 @@
+# Pool d'adresses IP pour les Services de type LoadBalancer
+# Alloue une plage d'IPs dans le réseau Docker bridge de kind (172.18.0.0/16)
+# Ces IPs sont accessibles depuis les pods du cluster via les règles eBPF de Cilium
+apiVersion: "cilium.io/v2"
+kind: CiliumLoadBalancerIPPool
+metadata:
+  name: kind-pool
+spec:
+  blocks:
+    - cidr: "172.18.0.200/29"
+---
+# Politique d'annonce L2 pour les IPs LoadBalancer
+# Sans cette ressource, Cilium alloue l'IP mais ne répond pas aux requêtes ARP
+# → les connexions vers l'IP LoadBalancer timeout silencieusement
+# Note: l2announcements.enabled=true doit être activé dans Helm (voir init.sh)
+apiVersion: "cilium.io/v2"
+kind: CiliumL2AnnouncementPolicy
+metadata:
+  name: default-l2-policy
+spec:
+  interfaces:
+    - eth0
+  loadBalancerIPs: true
