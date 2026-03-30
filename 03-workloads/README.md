@@ -75,12 +75,12 @@ kubectl get deployment -n api
 
 ```
 NAME   READY   UP-TO-DATE   AVAILABLE   AGE
-api    2/2     2            2           10s
+api    0/2     2            0           30s
 ```
 
-### CrashLoopBackOff — comportement normal à ce stade
+Les Pods ne sont pas prêts. C'est l'occasion d'utiliser les outils de diagnostic.
 
-Une fois l'API déployée, ses Pods seront en `CrashLoopBackOff` :
+### Diagnostiquer avec describe et logs
 
 ```bash
 kubectl get pods -n api
@@ -88,25 +88,60 @@ kubectl get pods -n api
 
 ```
 NAME                   READY   STATUS             RESTARTS   AGE
-api-6d69cf69cc-wkpxt   0/1     CrashLoopBackOff   5          4m
+api-6d69cf69cc-wkpxt   0/1     CrashLoopBackOff   3          2m
+api-6d69cf69cc-b9k2p   0/1     CrashLoopBackOff   3          2m
 ```
 
 ```bash
+# Inspecter un Pod pour lire les Events
+kubectl describe pod <nom-du-pod> -n api
+```
+
+La section `Events` indique :
+
+```
+Warning  BackOff    kubelet  Back-off restarting failed container api
+```
+
+```bash
+# Lire les logs du crash précédent
 kubectl logs <nom-du-pod> -n api --previous
 ```
 
 ```
-2026/03/30 08:28:06 Failed to create table: dial tcp: lookup postgres.database.svc.cluster.local on 10.96.0.10:53: no such host
+Failed to create table: dial tcp: lookup postgres.database.svc.cluster.local on 10.96.0.10:53: no such host
 ```
 
-C'est **attendu et normal** à ce stade du parcours. L'API tente de joindre PostgreSQL via son nom DNS `postgres.database.svc.cluster.local` au démarrage, mais ce nom n'existe pas encore car :
+L'API tente de résoudre `postgres.database.svc.cluster.local` au démarrage et échoue — ce nom DNS n'existe pas encore car le **Service** PostgreSQL n'a pas encore été créé.
 
-- Le **Service** `postgres` dans le namespace `database` n'a pas encore été créé (module 05)
-- Sans Service, le DNS interne Kubernetes n'a pas d'entrée à résoudre
+### Confirmer depuis l'intérieur du Pod
 
-Ce `CrashLoopBackOff` disparaîtra naturellement au module 05, une fois le Service PostgreSQL créé. Le but ici est uniquement de comprendre les Deployments et StatefulSets.
+Même si le Pod crashe rapidement, on peut lancer un Pod de debug temporaire pour tester la résolution DNS :
 
-> **Concept illustré** : Kubernetes redémarre automatiquement un conteneur qui crashe (`restartPolicy: Always` par défaut), avec un délai exponentiel entre chaque tentative. C'est le `BackOff` de `CrashLoopBackOff`.
+```bash
+# Lancer un Pod de debug dans le namespace api
+kubectl run debug --image=busybox -n api --rm -it --restart=Never -- sh
+```
+
+Depuis ce shell :
+
+```sh
+# Tenter la résolution DNS du Service PostgreSQL
+nslookup postgres.database.svc.cluster.local
+```
+
+```
+Server:    10.96.0.10
+Address 1: 10.96.0.10 kube-dns.kube-system.svc.cluster.local
+
+nslookup: can't resolve 'postgres.database.svc.cluster.local'
+```
+
+Le DNS Kubernetes (`10.96.0.10`) répond mais ne connaît pas `postgres.database.svc.cluster.local` — aucun Service de ce nom n'existe dans le namespace `database`.
+
+> **Ce `CrashLoopBackOff` se résoudra au module 05** quand le Service PostgreSQL sera créé. Le DNS interne Kubernetes crée automatiquement une entrée `<service>.<namespace>.svc.cluster.local` pour chaque Service.
+
+> **Concept illustré** : Kubernetes redémarre automatiquement un conteneur qui crashe (`restartPolicy: Always` par défaut), avec un délai exponentiel entre chaque tentative — c'est le `BackOff` de `CrashLoopBackOff`.
 
 ### Déboguer un ImagePullBackOff
 
@@ -292,12 +327,12 @@ spec:
 ## État du fil rouge à ce stade
 
 ```
-ns/database:  StatefulSet postgres-0  ✓ Running
-ns/api:       Deployment api (2 réplicas)  ✓ Running
+ns/database:  StatefulSet postgres-0       ✓ Running
+ns/api:       Deployment api (2 réplicas)  ✗ CrashLoopBackOff — Service postgres manquant
 ns/frontend:  (pas encore déployé)
 ```
 
-> L'API ne peut pas encore joindre PostgreSQL — les Services n'existent pas. C'est le sujet du module 05.
+> L'API crashe car le Service PostgreSQL n'existe pas encore — ce sera corrigé au module 05.
 
 ---
 
