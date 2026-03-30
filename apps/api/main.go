@@ -56,7 +56,7 @@ func main() {
 
 	addr := ":8080"
 	log.Printf("API listening on %s", addr)
-	if err := http.ListenAndServe(addr, mux); err != nil {
+	if err := http.ListenAndServe(addr, corsMiddleware(mux)); err != nil {
 		log.Fatalf("Server error: %v", err)
 	}
 }
@@ -137,4 +137,18 @@ func getEnv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// corsMiddleware ajoute les headers CORS sur toutes les réponses et gère le preflight OPTIONS.
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }

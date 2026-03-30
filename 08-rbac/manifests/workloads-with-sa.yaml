@@ -70,7 +70,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: api
-          image: simonjaricot/k8s-tuto-api:v1.0.3
+          image: simonjaricot/k8s-tuto-api:v1.0.4
           ports:
             - containerPort: 8080
           envFrom:
