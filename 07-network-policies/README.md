@@ -27,7 +27,26 @@ Cilium supporte deux types de ressources :
 | `CiliumNetworkPolicy` | L3/L4/L7 (HTTP, gRPC, DNS) | Namespaced |
 | `CiliumClusterwideNetworkPolicy` | L3/L4/L7 | Cluster entier |
 
-> On utilisera principalement `CiliumNetworkPolicy` pour profiter du filtrage L7.
+> On utilisera `CiliumNetworkPolicy` pour profiter du filtrage L7.
+
+---
+
+## Le modèle Cilium : default-deny implicite
+
+Contrairement à la NetworkPolicy standard Kubernetes, **Cilium n'a pas besoin d'une règle "deny-all" explicite**.
+
+Le comportement est le suivant :
+- **Aucune policy** sur un endpoint → tout le trafic est autorisé (comportement par défaut K8s)
+- **Au moins une policy** sélectionne un endpoint → Cilium passe en **default-deny** pour cet endpoint : seul le trafic explicitement autorisé par une policy `Allow` passe
+
+> C'est le modèle dit *"deny by default once selected"* : il suffit d'appliquer une policy `allow-from-api` sur le namespace `database` pour que l'endpoint postgres soit automatiquement en default-deny. Tout le trafic non explicitement autorisé est bloqué — sans avoir besoin d'écrire une policy `deny-all`.
+
+**Testé et confirmé** :
+- Après application de `allow-from-api` sur `ns/database` :
+  - `app=api` depuis `ns/api` → `open` (autorisé)
+  - `app=frontend` depuis `ns/frontend` → `timed out` (bloqué implicitement)
+
+> **Piège à éviter** : `ingress: []` ou `egress: []` (listes vides) est invalide dans Cilium — la policy passe `VALID: False` et est ignorée silencieusement. Le trafic continue à passer. Ne pas utiliser de listes vides pour exprimer un deny.
 
 ---
 
@@ -64,86 +83,51 @@ pod "test" deleted
 
 Hubble affiche :
 ```
-TIMESTAMP   SOURCE                       DESTINATION                  TYPE      VERDICT  SUMMARY
-...         frontend/test                database/postgres-0:5432     to-endpoint  FORWARDED  TCP Flags: SYN
+TIMESTAMP   SOURCE                       DESTINATION                  TYPE          VERDICT    SUMMARY
+...         frontend/test                database/postgres-0:5432     to-endpoint   FORWARDED  TCP Flags: SYN
 ```
 
 > Le flux est **FORWARDED** : sans policy, tout passe.
 
 ---
 
-## Stratégie : deny-all puis whitelist
+## Stratégie : appliquer les policies dans l'ordre
 
-La bonne pratique est d'appliquer un **deny-all** par défaut sur chaque namespace, puis d'ouvrir uniquement le trafic nécessaire.
+### Étape 1 — Protéger le namespace database
 
-### Étape 1 — Deny-all sur le namespace database
+On applique uniquement la règle `allow-from-api` : dès qu'elle sélectionne l'endpoint `postgres`, Cilium passe automatiquement en default-deny pour cet endpoint.
+
+**Autoriser l'egress DNS** (sans cela, postgres ne peut pas résoudre de noms — nécessaire même pour les StatefulSets) :
 
 ```yaml
-# manifests/01-database-deny-all.yaml
+# manifests/01-database-allow-dns.yaml
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
-  name: deny-all
+  name: allow-dns-egress
   namespace: database
 spec:
-  endpointSelector: {}   # Sélectionne tous les endpoints du namespace
-  ingressDeny:
-    - fromEntities:
-        - "all"          # Bloque tout le trafic entrant
-  egressDeny:
-    - toEntities:
-        - "all"          # Bloque tout le trafic sortant
+  endpointSelector: {}
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*"
 ```
 
-> **Pourquoi `ingressDeny`/`egressDeny` et pas `ingress: []`/`egress: []` ?**
-> Cilium exige qu'une policy ait au moins une règle non-vide — une liste vide est invalide (`VALID: False`) et ignorée silencieusement. Les champs `ingressDeny`/`egressDeny` expriment explicitement le blocage.
-
-```bash
-kubectl apply -f 07-network-policies/manifests/01-database-deny-all.yaml
-
-# Vérifier que la policy est valide
-kubectl get ciliumnetworkpolicy deny-all -n database
-```
-
-```
-NAME       AGE   VALID
-deny-all   10s   True
-```
-
-Tester depuis Hubble :
-```bash
-hubble observe --namespace database --follow
-```
-
-Puis retester la connexion depuis le namespace `api` avec un Pod de debug :
-```bash
-# nc -zv teste uniquement l'établissement de la connexion TCP (pas de protocole HTTP)
-# C'est le bon outil pour tester la connectivité vers PostgreSQL (port 5432)
-kubectl run debug --image=busybox -n api --rm -it --restart=Never -- \
-  nc -zv postgres.database.svc.cluster.local 5432
-```
-
-Avec le deny-all actif, la connexion TCP est bloquée :
-```
-nc: postgres.database.svc.cluster.local (10.96.x.x:5432): Connection timed out
-pod "debug" deleted
-pod api/debug terminated (Error)
-```
-
-Hubble affiche maintenant :
-```
-api/debug:xxxxx <> database/postgres-0:5432   policy-verdict:all INGRESS DENIED   DROPPED (TCP Flags: SYN)
-api/debug:xxxxx <> database/postgres-0:5432   Policy denied by denylist           DROPPED (TCP Flags: SYN)
-```
-
-> **Pourquoi `nc` et pas `wget` ?** PostgreSQL parle son propre protocole binaire, pas HTTP. `wget` établit bien la connexion TCP mais échoue à parser la réponse — même sans NetworkPolicy. `nc -zv` teste uniquement la couche TCP et retourne clairement `succeeded` ou `timed out`.
-
----
-
-### Étape 2 — Autoriser uniquement l'API → PostgreSQL
+**Autoriser uniquement l'API → PostgreSQL** :
 
 ```yaml
-# manifests/database-allow-api.yaml
+# manifests/02-database-allow-from-api.yaml
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
@@ -156,7 +140,7 @@ spec:
   ingress:
     - fromEndpoints:
         - matchLabels:
-            k8s:io.kubernetes.pod.namespace: api   # Sélecteur de namespace
+            k8s:io.kubernetes.pod.namespace: api   # Sélecteur de namespace Cilium
             app: api
       toPorts:
         - ports:
@@ -164,35 +148,89 @@ spec:
               protocol: TCP
 ```
 
+> La clé `k8s:io.kubernetes.pod.namespace` est la façon Cilium de sélectionner un namespace dans un `fromEndpoints`. C'est différent du `namespaceSelector` standard Kubernetes.
+
 ```bash
-kubectl apply -f 07-network-policies/manifests/database-allow-api.yaml
+kubectl apply -f 07-network-policies/manifests/01-database-allow-dns.yaml
+kubectl apply -f 07-network-policies/manifests/02-database-allow-from-api.yaml
+
+# Vérifier que les policies sont valides
+kubectl get ciliumnetworkpolicy -n database
 ```
 
-> La clé `k8s:io.kubernetes.pod.namespace` est la façon Cilium de sélectionner un namespace dans un `fromEndpoints`. C'est différent du `namespaceSelector` standard Kubernetes.
+```
+NAME              AGE   VALID
+allow-dns-egress  10s   True
+allow-from-api    10s   True
+```
+
+Tester depuis un Pod de debug dans `ns/api` :
+```bash
+# Doit réussir : app=api depuis ns/api est autorisé
+kubectl run debug --image=busybox --labels="app=api" -n api --rm -it --restart=Never -- \
+  nc -zv postgres.database.svc.cluster.local 5432
+# → postgres.database.svc.cluster.local (10.x.x.x:5432) open
+```
+
+> **Pourquoi `--labels="app=api"` ?** Par défaut, `kubectl run debug` crée un Pod avec le label `run=debug`. La policy `allow-from-api` filtre sur `app=api` — sans ce label, le Pod de debug ne matche pas la policy et le trafic serait bloqué, faussant le test.
+
+Tester depuis un Pod de debug dans `ns/frontend` :
+```bash
+# Doit échouer : frontend n'est pas dans la policy allow-from-api
+kubectl run attack --image=busybox -n frontend --rm -it --restart=Never -- \
+  nc -zv postgres.database.svc.cluster.local 5432
+# → nc: postgres.database.svc.cluster.local: Connection timed out
+```
+
+Hubble affiche :
+```
+frontend/attack → database/postgres-0:5432   policy-verdict:all  INGRESS DENIED   DROPPED (TCP Flags: SYN)
+```
+
+> Sans aucune policy "deny-all" explicite, le trafic `frontend → postgres` est bloqué automatiquement. C'est le default-deny implicite de Cilium.
 
 ---
 
-### Étape 3 — Deny-all sur le namespace api
+### Étape 2 — Protéger le namespace api
+
+Même logique : dès qu'une policy sélectionne les Pods `api`, Cilium passe en default-deny pour eux.
+
+**Autoriser l'egress DNS** :
 
 ```yaml
-# manifests/api-deny-all.yaml
+# manifests/03-api-allow-dns.yaml
+```
+
+**Autoriser l'egress api → postgres** :
+
+```yaml
+# manifests/04-api-allow-egress-db.yaml
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
-  name: deny-all
+  name: allow-egress-to-database
   namespace: api
 spec:
-  endpointSelector: {}
-  ingress: []
-  egress: []
+  endpointSelector:
+    matchLabels:
+      app: api
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: database
+            app: postgres
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
 ```
 
-### Étape 4 — Autoriser frontend → api (HTTP L7)
+**Autoriser l'ingress frontend → api (HTTP L7)** :
 
 Avec Cilium, on peut filtrer au niveau HTTP (L7) — par méthode, path, headers :
 
 ```yaml
-# manifests/api-allow-frontend.yaml
+# manifests/05-api-allow-from-frontend.yaml
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
@@ -223,87 +261,62 @@ spec:
 
 > Seuls les appels `GET /users`, `POST /users` et `GET /healthz` sont autorisés. Une requête `DELETE /users/1` serait bloquée même si le port 8080 est ouvert.
 
+```bash
+kubectl apply -f 07-network-policies/manifests/03-api-allow-dns.yaml
+kubectl apply -f 07-network-policies/manifests/04-api-allow-egress-db.yaml
+kubectl apply -f 07-network-policies/manifests/05-api-allow-from-frontend.yaml
+```
+
 ---
 
-### Étape 5 — Autoriser l'egress DNS
-
-Les Pods ont besoin de résoudre des noms DNS (CoreDNS tourne dans `kube-system`). Sans cette policy, même les résolutions DNS sont bloquées.
+### Étape 3 — Protéger le namespace frontend
 
 ```yaml
-# manifests/allow-dns-egress.yaml
-apiVersion: cilium.io/v2
-kind: CiliumNetworkPolicy
-metadata:
-  name: allow-dns-egress
-  namespace: api
-spec:
-  endpointSelector: {}
-  egress:
-    - toEndpoints:
-        - matchLabels:
-            k8s:io.kubernetes.pod.namespace: kube-system
-            k8s-app: kube-dns
-      toPorts:
-        - ports:
-            - port: "53"
-              protocol: UDP
-            - port: "53"
-              protocol: TCP
-          rules:
-            dns:
-              - matchPattern: "*"
+# manifests/06-frontend-policies.yaml
+```
+
+Ce fichier contient deux policies :
+- `allow-dns-egress` : autorise l'egress DNS depuis `ns/frontend`
+- `allow-egress-to-api` : autorise `frontend → api:8080`
+
+```bash
+kubectl apply -f 07-network-policies/manifests/06-frontend-policies.yaml
 ```
 
 ---
 
-### Étape 6 — Autoriser l'egress api → database
-
-```yaml
-# manifests/api-allow-egress-db.yaml
-apiVersion: cilium.io/v2
-kind: CiliumNetworkPolicy
-metadata:
-  name: allow-egress-to-database
-  namespace: api
-spec:
-  endpointSelector:
-    matchLabels:
-      app: api
-  egress:
-    - toEndpoints:
-        - matchLabels:
-            k8s:io.kubernetes.pod.namespace: database
-            app: postgres
-      toPorts:
-        - ports:
-            - port: "5432"
-              protocol: TCP
-```
-
----
-
-## Récapitulatif des flux autorisés
-
-```
-ns/frontend                ns/api                 ns/database
-┌──────────┐   GET/POST    ┌──────────┐   TCP     ┌───────────┐
-│ frontend │ ─────────────▶│   api    │ ──────────▶│ postgres  │
-└──────────┘  :8080        └──────────┘  :5432     └───────────┘
-     │                           │
-     ▼ bloqué                    ▼ DNS vers kube-system autorisé
-  postgres:5432                  kube-dns:53
-```
-
----
-
-## Fil rouge — Appliquer toutes les policies
+## Fil rouge — Appliquer toutes les policies en une commande
 
 ```bash
 kubectl apply -f 07-network-policies/manifests/
 ```
 
-Vérifier avec Hubble :
+Vérifier que toutes les policies sont valides :
+```bash
+kubectl get ciliumnetworkpolicy -A
+```
 
+```
+NAMESPACE   NAME                    AGE   VALID
+api         allow-dns-egress        30s   True
+api         allow-egress-to-database 30s  True
+api         allow-from-frontend     30s   True
+database    allow-dns-egress        30s   True
+database    allow-from-api          30s   True
+frontend    allow-dns-egress        30s   True
+frontend    allow-egress-to-api     30s   True
+```
+
+---
+
+## Vérifier avec Hubble
+
+Flux autorisés :
+```bash
+hubble observe --follow --verdict FORWARDED
+```
+
+Flux bloqués :
 ```bash
 hubble observe --follow --verdict DROPPED
 ```
@@ -317,6 +330,22 @@ kubectl run attack --image=busybox --rm -it --restart=Never -n frontend \
 Hubble affiche :
 ```
 frontend/attack → database/postgres-0:5432  DROPPED  Policy denied
+```
+
+---
+
+## Récapitulatif des flux autorisés
+
+```
+ns/frontend                ns/api                 ns/database
+┌──────────┐   GET/POST    ┌──────────┐   TCP     ┌───────────┐
+│ frontend │ ─────────────▶│   api    │ ──────────▶│ postgres  │
+└──────────┘  :8080        └──────────┘  :5432     └───────────┘
+     │  DNS                      │  DNS
+     ▼                           ▼
+  kube-dns:53               kube-dns:53
+
+frontend → postgres  ✗ bloqué (default-deny implicite Cilium)
 ```
 
 ---
@@ -340,6 +369,7 @@ L'interface graphique affiche en temps réel une carte des flux réseau entre se
 | Filtrage L7 HTTP | Non | Oui |
 | Filtrage L7 gRPC | Non | Oui |
 | Filtrage DNS | Non | Oui |
+| Default-deny implicite | Oui (dès qu'une policy sélectionne un pod) | Oui (même modèle) |
 | Sélecteur de namespace dans `fromEndpoints` | Via `namespaceSelector` | Via label `k8s:io.kubernetes.pod.namespace` |
 | FQDN egress | Non | Oui (`toFQDNs`) |
 
@@ -349,11 +379,11 @@ L'interface graphique affiche en temps réel une carte des flux réseau entre se
 
 | Concept | Description |
 |---------|-------------|
-| **NetworkPolicy** | Règles de filtrage réseau standard Kubernetes (L3/L4) |
 | **CiliumNetworkPolicy** | Extension Cilium avec filtrage L7 |
 | **endpointSelector** | Sélectionne les Pods auxquels la policy s'applique |
 | **fromEndpoints / toEndpoints** | Sélectionne les Pods source/destination |
-| **deny-all** | Policy vide qui bloque tout le trafic (ingress/egress) |
+| **default-deny implicite** | Dès qu'une policy sélectionne un endpoint, tout le trafic non explicitement autorisé est bloqué |
+| **Filtrage L7** | Filtrage HTTP par méthode/path, DNS par pattern |
 | **Hubble** | Observabilité réseau — visualise les flux et verdicts |
 
 ---
