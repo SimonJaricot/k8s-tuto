@@ -24,7 +24,7 @@ spec:
             - containerPort: 80
           env:
             - name: API_URL
-              value: "http://api.local"
+              value: "http://api.local:8080"
           resources:
             requests:
               cpu: "50m"

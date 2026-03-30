@@ -241,7 +241,7 @@ kubectl label namespace frontend gateway-accessible=true
 
 ## Mettre à jour l'API_URL du frontend
 
-Jusqu'ici, le frontend utilisait `http://api.api.svc.cluster.local:8080` comme `API_URL` — une URL interne au cluster, non résolvable par un navigateur. Maintenant que la Gateway expose l'API sous `http://api.local`, on met à jour le Deployment :
+Jusqu'ici, le frontend utilisait `http://api.api.svc.cluster.local:8080` comme `API_URL` — une URL interne au cluster, non résolvable par un navigateur. Maintenant que la Gateway expose l'API sous `http://api.local:8080`, on met à jour le Deployment :
 
 ```bash
 kubectl patch deployment frontend -n frontend --type=strategic \
@@ -264,7 +264,7 @@ spec:
         - name: frontend
           env:
             - name: API_URL
-              value: "http://api.local"
+              value: "http://api.local:8080"
 ```
 
 > Ce fichier est placé à la racine de `09-gateway-api/` et non dans `manifests/` pour ne pas être inclus accidentellement dans un `kubectl apply -f manifests/` (un Deployment incomplet échoue à la validation).

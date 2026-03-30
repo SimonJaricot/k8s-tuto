@@ -10,4 +10,4 @@ spec:
         - name: frontend
           env:
             - name: API_URL
-              value: "http://api.local"
+              value: "http://api.local:8080"
