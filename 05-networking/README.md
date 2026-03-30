@@ -223,6 +223,14 @@ spec:
       targetPort: 80
 ```
 
+> **Limitation connue** : le frontend ne peut pas être testé complètement via `kubectl port-forward` à ce stade.
+>
+> L'`API_URL` est injectée dans le HTML au démarrage du conteneur (via `envsubst`) avec la valeur `http://api.api.svc.cluster.local:8080`. Cette URL est un nom DNS **interne au cluster** — le navigateur ne peut pas la résoudre depuis ta machine locale.
+>
+> Résultat : si tu fais `kubectl port-forward svc/frontend 8080:80 -n frontend` et que tu ouvres `http://localhost:8080`, la page s'affiche mais le fetch vers l'API échoue avec **"Failed to fetch"**.
+>
+> **La solution** est la **Gateway API** (module 09), qui expose un point d'entrée HTTP unique et accessible depuis l'extérieur du cluster. Le test complet frontend → API → PostgreSQL sera fait à ce moment-là.
+
 ---
 
 ## NodePort — Accès temporaire pour les tests

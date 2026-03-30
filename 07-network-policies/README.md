@@ -332,6 +332,8 @@ Hubble affiche :
 frontend/attack → database/postgres-0:5432  DROPPED  Policy denied
 ```
 
+> **Note sur le test du frontend** : à ce stade, `kubectl port-forward svc/frontend` affiche bien la page, mais le fetch vers l'API échoue avec "Failed to fetch" dans le navigateur. C'est normal : `API_URL` est une adresse DNS interne au cluster (`api.api.svc.cluster.local`), non résolvable depuis le navigateur local. Le test complet de l'interface est fait au module 09 via la Gateway API.
+
 ---
 
 ## Récapitulatif des flux autorisés

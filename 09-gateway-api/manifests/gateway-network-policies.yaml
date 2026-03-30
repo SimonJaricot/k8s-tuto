@@ -1,0 +1,38 @@
+# Autoriser le trafic entrant depuis le proxy Cilium Gateway vers le frontend
+# Cilium crée un pod Envoy dans le namespace de la Gateway avec le label
+# io.cilium/gateway=main-gateway
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-from-gateway
+  namespace: frontend
+spec:
+  endpointSelector:
+    matchLabels:
+      app: frontend
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: frontend
+            io.cilium/gateway: main-gateway
+---
+# Autoriser le trafic entrant depuis le proxy Cilium Gateway vers l'API
+# La HTTPRoute api-route est dans ns/api mais sa Gateway est dans ns/frontend
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: allow-from-gateway
+  namespace: api
+spec:
+  endpointSelector:
+    matchLabels:
+      app: api
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: frontend
+            io.cilium/gateway: main-gateway
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
