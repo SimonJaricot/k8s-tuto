@@ -19,7 +19,7 @@ spec:
     spec:
       containers:
         - name: frontend
-          image: simonjaricot/k8s-tuto-frontend:v1.0.1
+          image: simonjaricot/k8s-tuto-frontend:v1.0.2
           ports:
             - containerPort: 80
           env:

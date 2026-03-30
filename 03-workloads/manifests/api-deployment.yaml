@@ -24,7 +24,7 @@ spec:
     spec:
       containers:
         - name: api
-          image: simonjaricot/k8s-tuto-api:v1.0.1  # remplacé au module 09
+          image: simonjaricot/k8s-tuto-api:v1.0.2  # remplacé au module 09
           ports:
             - containerPort: 8080
           env:

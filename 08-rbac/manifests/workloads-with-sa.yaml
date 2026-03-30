@@ -71,7 +71,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: api
-          image: simonjaricot/k8s-tuto-api:v1.0.1
+          image: simonjaricot/k8s-tuto-api:v1.0.2
           ports:
             - containerPort: 8080
           envFrom:
@@ -103,7 +103,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: frontend
-          image: simonjaricot/k8s-tuto-frontend:v1.0.1
+          image: simonjaricot/k8s-tuto-frontend:v1.0.2
           ports:
             - containerPort: 80
           env:
